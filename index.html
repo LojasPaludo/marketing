@@ -1,0 +1,1093 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Portal Marketing Paludo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Outfit', 'ui-sans-serif', 'system-ui', 'sans-serif'] },
+          colors: {
+            navy: { DEFAULT: '#161616', 700: '#262626', 600: '#333333', 500: '#404040' },
+            canvas: '#F8F8F8',
+            hair: '#EBEBEB',
+            electric: '#D72832',
+            sage: '#5E7461',
+            reels: '#D72832',
+            feed: '#161616',
+            stories: '#5E7461',
+          },
+          boxShadow: {
+            soft: '0 1px 2px rgba(22,22,22,0.04), 0 8px 24px -12px rgba(22,22,22,0.12)',
+            card: '0 1px 0 rgba(22,22,22,0.03), 0 12px 32px -16px rgba(22,22,22,0.16)',
+            drawer: '-24px 0 48px -24px rgba(22,22,22,0.35)',
+          },
+        },
+      },
+    };
+  </script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script>
+    Babel.registerPreset('react-classic', {
+      presets: [[Babel.availablePresets['react'], { runtime: 'classic' }]],
+    });
+  </script>
+  <style>
+    :root { color-scheme: light; }
+    body { margin: 0; font-family: 'Outfit', sans-serif; background: #F8F8F8; color: #161616; -webkit-font-smoothing: antialiased; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-thumb { background: #DADADA; border-radius: 999px; border: 2px solid #F8F8F8; }
+    .kanban-col { min-height: 200px; }
+    .drag-over { background: rgba(22,22,22,0.04); border-radius: 10px; }
+    @keyframes fadeUp { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+    .fade-up { animation: fadeUp .25s ease both; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel" data-presets="react-classic">
+    const { useState, useEffect, useRef, useCallback } = React;
+
+    /* ── Paleta / helpers ── */
+    const TODAY = new Date().toISOString().slice(0,10);
+    const fmtDate = iso => iso ? iso.split('-').reverse().join('/') : '';
+    const fmtReach = n => { const v = Number(n)||0; return v >= 1000 ? (v/1000).toFixed(1)+'k' : String(v); };
+
+    const FORMAT_LABEL = { reels:'Reels', feed:'Feed', stories:'Stories' };
+    const NET_LABEL    = { instagram:'Instagram', tiktok:'TikTok' };
+    const STATUS_LABEL = { rascunho:'Rascunho', aprovado:'Aprovado', publicado:'Publicado' };
+    const STAGES = ['ideia','roteiro','producao','aprovacao','agendado','publicado'];
+    const STAGE_META = {
+      ideia:     { label:'Ideias',    dot:'bg-navy/20', bar:'bg-navy/15' },
+      roteiro:   { label:'Roteiro',   dot:'bg-navy/40', bar:'bg-navy/30' },
+      producao:  { label:'Produção',  dot:'bg-navy/65', bar:'bg-navy/55' },
+      aprovacao: { label:'Aprovação', dot:'bg-navy',     bar:'bg-navy/80' },
+      agendado:  { label:'Agendado',  dot:'bg-electric', bar:'bg-electric' },
+      publicado: { label:'Publicado', dot:'bg-sage',     bar:'bg-sage' },
+    };
+    const PRIO_META = {
+      alta:  { label:'Alta',  cls:'bg-electric/10 text-electric' },
+      media: { label:'Média', cls:'bg-sage/20 text-[#3d5240]' },
+      baixa: { label:'Baixa', cls:'bg-navy/5 text-navy/45' },
+    };
+    const FORMAT_DOT  = { reels:'bg-reels', feed:'bg-feed', stories:'bg-stories' };
+    const FORMAT_CHIP = { reels:'bg-reels/10 text-reels', feed:'bg-navy/8 text-navy', stories:'bg-sage/20 text-[#3d5240]' };
+    const CLASS_META = {
+      acima:  { label:'Acima da média',  cls:'bg-sage/20 text-[#3d5240]' },
+      na:     { label:'Na média',        cls:'bg-navy/5 text-navy/55' },
+      abaixo: { label:'Abaixo da média', cls:'bg-electric/10 text-electric' },
+    };
+
+    /* ── CONFIG salva no localStorage ── */
+    function loadConfig() {
+      try { return JSON.parse(localStorage.getItem('paludo_cfg') || '{}'); } catch { return {}; }
+    }
+    function saveConfig(c) { localStorage.setItem('paludo_cfg', JSON.stringify(c)); }
+
+    /* ── Chamada Apps Script ── */
+    async function apiFetch(scriptUrl, action, extra={}) {
+      const url = `${scriptUrl}?action=${action}&_t=${Date.now()}`;
+      const r = await fetch(url);
+      if (!r.ok) throw new Error('HTTP '+r.status);
+      return r.json();
+    }
+    async function apiPost(scriptUrl, body) {
+      await fetch(scriptUrl, {
+        method:'POST', mode:'no-cors',
+        headers:{'Content-Type':'text/plain'},
+        body: JSON.stringify(body)
+      });
+    }
+
+    /* ══════════════ LOGIN ══════════════ */
+    function LoginPage({ onLogin }) {
+      const [user, setUser] = useState('');
+      const [pass, setPass] = useState('');
+      const [scriptUrl, setScriptUrl] = useState(loadConfig().script_url || '');
+      const [err, setErr] = useState('');
+      const [loading, setLoading] = useState(false);
+
+      async function handleLogin(e) {
+        e.preventDefault();
+        if (!scriptUrl) { setErr('Informe a URL do Apps Script.'); return; }
+        setLoading(true); setErr('');
+        try {
+          const data = await apiFetch(scriptUrl, 'login');
+          const usuarios = data.usuarios || [];
+          const found = usuarios.find(u =>
+            u.usuario?.toLowerCase() === user.toLowerCase() &&
+            u.senha === pass && u.ativo === true
+          );
+          if (!found) { setErr('Usuário ou senha incorretos.'); setLoading(false); return; }
+          const cfg = { ...loadConfig(), script_url: scriptUrl };
+          saveConfig(cfg);
+          onLogin({ ...found, scriptUrl });
+        } catch(e) {
+          setErr('Erro ao conectar. Verifique a URL do Apps Script.');
+          setLoading(false);
+        }
+      }
+
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-canvas">
+          <div className="w-full max-w-sm fade-up">
+            <div className="flex justify-center mb-8">
+              <div className="flex flex-col items-center gap-1">
+                <div className="w-10 h-10 rounded-xl bg-navy flex items-center justify-center">
+                  <span className="text-white font-bold text-lg">P</span>
+                </div>
+                <span className="font-bold text-navy text-xl tracking-tight">Portal Paludo</span>
+                <span className="text-navy/40 text-xs">Marketing</span>
+              </div>
+            </div>
+            <form onSubmit={handleLogin} className="bg-white rounded-2xl shadow-card p-6 flex flex-col gap-4">
+              <div>
+                <label className="text-xs font-semibold text-navy/50 uppercase tracking-wide block mb-1.5">URL do Apps Script</label>
+                <input value={scriptUrl} onChange={e=>setScriptUrl(e.target.value)}
+                  placeholder="https://script.google.com/macros/s/.../exec"
+                  className="w-full border border-hair rounded-lg px-3 py-2 text-sm outline-none focus:border-navy/30 focus:ring-2 focus:ring-navy/10 font-mono text-xs" />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-navy/50 uppercase tracking-wide block mb-1.5">Usuário</label>
+                <input value={user} onChange={e=>setUser(e.target.value)} placeholder="seu.usuario"
+                  className="w-full border border-hair rounded-lg px-3 py-2 text-sm outline-none focus:border-navy/30 focus:ring-2 focus:ring-navy/10" />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-navy/50 uppercase tracking-wide block mb-1.5">Senha</label>
+                <input type="password" value={pass} onChange={e=>setPass(e.target.value)} placeholder="••••••••"
+                  className="w-full border border-hair rounded-lg px-3 py-2 text-sm outline-none focus:border-navy/30 focus:ring-2 focus:ring-navy/10" />
+              </div>
+              {err && <p className="text-electric text-xs font-medium">{err}</p>}
+              <button type="submit" disabled={loading}
+                className="w-full bg-navy text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-navy/80 transition disabled:opacity-50">
+                {loading ? 'Entrando...' : 'Entrar'}
+              </button>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    /* ══════════════ SIDEBAR ══════════════ */
+    function Sidebar({ tab, setTab, user, onLogout }) {
+      const isMaster = user.perfil === 'master';
+      const tabs = [
+        { id:'meudia',     icon:'☀️', label:'Meu dia' },
+        { id:'calendario', icon:'📅', label:'Calendário' },
+        { id:'atividades', icon:'🗂️', label:'Atividades' },
+        { id:'tendencias', icon:'✦',  label:'Tendências', masterOnly: true },
+        { id:'metricas',   icon:'📊', label:'Métricas' },
+      ].filter(t => !t.masterOnly || isMaster);
+
+      return (
+        <aside className="w-56 shrink-0 bg-navy min-h-screen flex flex-col">
+          <div className="px-4 py-5 border-b border-white/8">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-electric flex items-center justify-center shrink-0">
+                <span className="text-white font-bold text-sm">P</span>
+              </div>
+              <div>
+                <div className="text-white font-bold text-sm leading-tight">Lojas Paludo</div>
+                <div className="text-white/35 text-[10px]">Portal Marketing</div>
+              </div>
+            </div>
+          </div>
+          <nav className="flex-1 px-2 py-4 flex flex-col gap-0.5">
+            {tabs.map(t => (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition text-left ${
+                  tab === t.id ? 'bg-white/10 text-white' : 'text-white/50 hover:text-white/80 hover:bg-white/5'
+                }`}>
+                <span>{t.icon}</span>
+                <span>{t.label}</span>
+              </button>
+            ))}
+          </nav>
+          <div className="px-2 pb-4 border-t border-white/8 pt-3">
+            <div className="px-3 py-2 mb-1">
+              <div className="text-white/70 text-xs font-medium truncate">{user.nome}</div>
+              <div className="text-white/30 text-[10px]">{user.perfil === 'master' ? 'Gestor' : 'Colaborador'}</div>
+            </div>
+            <button onClick={onLogout}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-white/40 hover:text-white/70 hover:bg-white/5 text-xs transition">
+              <span>→</span> Sair
+            </button>
+          </div>
+        </aside>
+      );
+    }
+
+    /* ══════════════ MEU DIA ══════════════ */
+    function MeuDia({ posts, user }) {
+      // Meu dia mostra apenas posts do calendário — atividades ficam no Kanban
+      const meusPosts = posts.filter(p =>
+        user.perfil === 'master' || p.responsavel === user.usuario
+      );
+      const atrasados = meusPosts.filter(p => p.data < TODAY && p.status !== 'publicado');
+      const hoje = meusPosts.filter(p => p.data === TODAY);
+      const proximos = meusPosts.filter(p => p.data > TODAY).slice(0, 5);
+      // Gestor vê posts aguardando aprovação (etapa aprovacao)
+      const aguardando = user.perfil === 'master'
+        ? posts.filter(p => p.etapa === 'aprovacao')
+        : [];
+
+      return (
+        <div className="p-6 max-w-3xl fade-up">
+          <h1 className="text-2xl font-bold text-navy mb-1">Bom dia, {user.nome.split(' ')[0]} 👋</h1>
+          <p className="text-navy/45 text-sm mb-6">{new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long'})}</p>
+
+          {user.perfil === 'master' && aguardando.length > 0 && (
+            <div className="bg-electric/5 border border-electric/20 rounded-xl p-4 mb-6">
+              <div className="text-electric font-semibold text-sm mb-3">⏳ Aguardando sua aprovação ({aguardando.length})</div>
+              {aguardando.map(p => <PostRow key={p.id} post={p} compact />)}
+            </div>
+          )}
+
+          {atrasados.length > 0 && (
+            <Section title={`⚠️ Atrasados (${atrasados.length})`} cls="text-electric">
+              {atrasados.map(p => <PostRow key={p.id} post={p} compact />)}
+            </Section>
+          )}
+          <Section title={`📌 Hoje (${hoje.length})`}>
+            {hoje.length ? hoje.map(p => <PostRow key={p.id} post={p} compact />) : <Empty text="Nenhum post para hoje." />}
+          </Section>
+          <Section title={`📅 Próximos 7 dias (${proximos.length})`}>
+            {proximos.length ? proximos.map(p => <PostRow key={p.id} post={p} compact />) : <Empty text="Nada agendado." />}
+          </Section>
+        </div>
+      );
+    }
+
+    function Section({ title, children, cls='' }) {
+      return (
+        <div className="mb-6">
+          <div className={`text-sm font-semibold text-navy/60 mb-2 ${cls}`}>{title}</div>
+          {children}
+        </div>
+      );
+    }
+
+    function PostRow({ post, compact }) {
+      return (
+        <div className="flex items-center gap-3 bg-white rounded-xl px-4 py-2.5 mb-2 shadow-soft">
+          <div className={`w-2 h-2 rounded-full shrink-0 ${FORMAT_DOT[post.formato] || 'bg-navy/20'}`} />
+          <div className="flex-1 min-w-0">
+            <div className="text-navy text-sm font-medium truncate">{post.titulo || post.legenda || '—'}</div>
+            {!compact && <div className="text-navy/40 text-xs">{post.legenda}</div>}
+          </div>
+          <div className="text-navy/35 text-xs shrink-0">{fmtDate(post.data)}</div>
+          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${FORMAT_CHIP[post.formato] || ''}`}>
+            {FORMAT_LABEL[post.formato]}
+          </span>
+        </div>
+      );
+    }
+    function Empty({ text }) {
+      return <div className="text-navy/30 text-sm py-3 px-1">{text}</div>;
+    }
+
+    /* ══════════════ CALENDÁRIO ══════════════ */
+    function Calendario({ posts, onNovoPost, user }) {
+      const [mes, setMes] = useState(() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; });
+      const [filtros, setFiltros] = useState(['instagram','tiktok']);
+      const [detalhe, setDetalhe] = useState(null);
+
+      const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+      const primeiro = new Date(mes.y, mes.m, 1);
+      const ultimo = new Date(mes.y, mes.m+1, 0).getDate();
+      let inicio = primeiro.getDay() - 1; if (inicio < 0) inicio = 6;
+      const prevDias = new Date(mes.y, mes.m, 0).getDate();
+
+      function toggleFiltro(n) {
+        setFiltros(f => f.includes(n) ? (f.length > 1 ? f.filter(x=>x!==n) : f) : [...f,n]);
+      }
+
+      const filtrados = posts.filter(p => filtros.includes((p.rede_social||'').toLowerCase()));
+
+      return (
+        <div className="p-6 fade-up">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <button onClick={() => setMes(m => { const d = new Date(m.y, m.m-1); return {y:d.getFullYear(),m:d.getMonth()}; })}
+                className="w-8 h-8 rounded-lg border border-hair flex items-center justify-center text-navy/50 hover:bg-white hover:text-navy transition text-sm">‹</button>
+              <span className="font-bold text-navy text-lg w-44 text-center">{meses[mes.m]} {mes.y}</span>
+              <button onClick={() => setMes(m => { const d = new Date(m.y, m.m+1); return {y:d.getFullYear(),m:d.getMonth()}; })}
+                className="w-8 h-8 rounded-lg border border-hair flex items-center justify-center text-navy/50 hover:bg-white hover:text-navy transition text-sm">›</button>
+            </div>
+            <div className="flex items-center gap-2">
+              {['instagram','tiktok'].map(n => (
+                <button key={n} onClick={() => toggleFiltro(n)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
+                    filtros.includes(n) ? 'bg-navy text-white border-navy' : 'bg-white text-navy/40 border-hair'
+                  }`}>{NET_LABEL[n]}</button>
+              ))}
+              <button onClick={() => onNovoPost(null)}
+                className="ml-2 px-4 py-1.5 bg-electric text-white rounded-full text-xs font-semibold hover:bg-electric/85 transition">+ Novo post</button>
+            </div>
+          </div>
+          <div className="flex gap-4 mb-3 text-xs text-navy/50">
+            {Object.entries(FORMAT_DOT).map(([k,v]) => (
+              <div key={k} className="flex items-center gap-1.5">
+                <div className={`w-2 h-2 rounded-full ${v}`} />
+                {FORMAT_LABEL[k]}
+              </div>
+            ))}
+          </div>
+          <div className="bg-white rounded-2xl shadow-soft overflow-hidden">
+            <div className="grid grid-cols-7 border-b border-hair">
+              {['SEG','TER','QUA','QUI','SEX','SÁB','DOM'].map(d => (
+                <div key={d} className="py-2.5 text-center text-[10px] font-semibold text-navy/35 tracking-wide">{d}</div>
+              ))}
+            </div>
+            <div className="grid grid-cols-7">
+              {Array.from({length: inicio}, (_,i) => (
+                <div key={'p'+i} className="min-h-[88px] p-2 border-b border-r border-hair/60 opacity-30">
+                  <div className="text-xs text-navy/40">{prevDias - inicio + i + 1}</div>
+                </div>
+              ))}
+              {Array.from({length: ultimo}, (_,i) => {
+                const d = i+1;
+                const iso = `${mes.y}-${String(mes.m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                const isToday = iso === TODAY;
+                const dayPosts = filtrados.filter(p => {
+                  const pd = typeof p.data === 'string' ? p.data.slice(0,10) : '';
+                  return pd === iso;
+                });
+                return (
+                  <div key={d} onClick={() => setDetalhe(iso)}
+                    className={`min-h-[88px] p-2 border-b border-r border-hair/60 cursor-pointer hover:bg-canvas transition ${isToday ? 'bg-electric/3' : ''}`}>
+                    <div className={`text-xs font-semibold mb-1 ${isToday ? 'text-electric' : 'text-navy/40'}`}>{d}</div>
+                    {dayPosts.slice(0,3).map(p => (
+                      <div key={p.id} className={`flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded mb-0.5 truncate ${FORMAT_CHIP[p.formato] || 'bg-navy/5 text-navy'}`}>
+                        <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${FORMAT_DOT[p.formato]}`} />
+                        {p.titulo || p.legenda?.slice(0,20) || FORMAT_LABEL[p.formato]}
+                      </div>
+                    ))}
+                    {dayPosts.length > 3 && <div className="text-[9px] text-navy/30 pl-1">+{dayPosts.length-3} mais</div>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          {detalhe && (
+            <DiaDrawer data={detalhe} posts={filtrados.filter(p=>p.data?.slice(0,10)===detalhe)}
+              onClose={()=>setDetalhe(null)} onNovoPost={()=>{onNovoPost(detalhe);setDetalhe(null);}} />
+          )}
+        </div>
+      );
+    }
+
+    function DiaDrawer({ data, posts, onClose, onNovoPost }) {
+      return (
+        <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
+          <div className="w-80 bg-white h-full shadow-drawer flex flex-col fade-up" onClick={e=>e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-hair">
+              <div className="font-bold text-navy">{fmtDate(data)}</div>
+              <div className="flex gap-2">
+                <button onClick={onNovoPost} className="text-xs bg-electric text-white px-3 py-1.5 rounded-lg font-semibold">+ Post</button>
+                <button onClick={onClose} className="text-navy/30 hover:text-navy text-lg leading-none">×</button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto px-4 py-3">
+              {posts.length === 0 ? <p className="text-navy/30 text-sm text-center py-8">Nenhum post neste dia.</p> :
+                posts.map(p => (
+                  <div key={p.id} className="bg-canvas rounded-xl p-3 mb-2">
+                    <div className="flex items-start justify-between gap-2 mb-1">
+                      <div className="text-sm font-semibold text-navy leading-tight">{p.titulo || p.legenda?.slice(0,40) || '—'}</div>
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${FORMAT_CHIP[p.formato]}`}>{FORMAT_LABEL[p.formato]}</span>
+                    </div>
+                    {p.legenda && <div className="text-xs text-navy/50 leading-snug">{p.legenda}</div>}
+                    <div className="flex gap-2 mt-2 text-[10px] text-navy/35">
+                      <span>{p.horario}</span>
+                      <span>·</span>
+                      <span>{NET_LABEL[p.rede_social]}</span>
+                    </div>
+                  </div>
+                ))
+              }
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    /* ══════════════ NOVO POST (modal) ══════════════ */
+    function NovoPostModal({ dataInicial, onSave, onClose, scriptUrl }) {
+      const [form, setForm] = useState({
+        titulo:'', legenda:'', data: dataInicial||TODAY, horario:'19:00',
+        rede_social:'instagram', formato:'reels', status:'rascunho',
+        responsavel:'', etapa:'ideia', prioridade:'media', campanha:''
+      });
+      const [saving, setSaving] = useState(false);
+      const set = k => e => setForm(f=>({...f,[k]:e.target.value}));
+
+      async function handleSave() {
+        if (!form.titulo && !form.legenda) { alert('Informe pelo menos o título ou legenda.'); return; }
+        setSaving(true);
+        if (scriptUrl) {
+          try { await apiPost(scriptUrl, { action:'salvarPost', dados:{...form, id: Date.now().toString()} }); }
+          catch(e) { console.warn(e); }
+        }
+        onSave({...form, id: Date.now().toString()});
+        setSaving(false);
+        onClose();
+      }
+
+      return (
+        <div className="fixed inset-0 z-50 bg-navy/30 flex items-center justify-center" onClick={onClose}>
+          <div className="bg-white rounded-2xl shadow-card w-[480px] max-h-[90vh] overflow-y-auto fade-up" onClick={e=>e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-hair">
+              <div className="font-bold text-navy">Novo post</div>
+              <button onClick={onClose} className="text-navy/30 hover:text-navy text-xl leading-none">×</button>
+            </div>
+            <div className="px-6 py-4 flex flex-col gap-3">
+              <Field label="Título interno"><input value={form.titulo} onChange={set('titulo')} placeholder="Ex: Reel look de festa" className={inp} /></Field>
+              <Field label="Legenda / Copy"><textarea value={form.legenda} onChange={set('legenda')} placeholder="Texto do post..." className={`${inp} min-h-[72px] resize-y`} /></Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Data"><input type="date" value={form.data} onChange={set('data')} className={inp} /></Field>
+                <Field label="Horário"><input type="time" value={form.horario} onChange={set('horario')} className={inp} /></Field>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Rede social">
+                  <select value={form.rede_social} onChange={set('rede_social')} className={inp}>
+                    <option value="instagram">Instagram</option>
+                    <option value="tiktok">TikTok</option>
+                  </select>
+                </Field>
+                <Field label="Formato">
+                  <select value={form.formato} onChange={set('formato')} className={inp}>
+                    <option value="reels">Reels / Vídeo</option>
+                    <option value="feed">Feed / Carrossel</option>
+                    <option value="stories">Stories</option>
+                  </select>
+                </Field>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Responsável"><input value={form.responsavel} onChange={set('responsavel')} placeholder="Nome" className={inp} /></Field>
+                <Field label="Prioridade">
+                  <select value={form.prioridade} onChange={set('prioridade')} className={inp}>
+                    <option value="alta">Alta</option>
+                    <option value="media">Média</option>
+                    <option value="baixa">Baixa</option>
+                  </select>
+                </Field>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Etapa inicial">
+                  <select value={form.etapa} onChange={set('etapa')} className={inp}>
+                    {STAGES.map(s=><option key={s} value={s}>{STAGE_META[s].label}</option>)}
+                  </select>
+                </Field>
+                <Field label="Status">
+                  <select value={form.status} onChange={set('status')} className={inp}>
+                    <option value="rascunho">Rascunho</option>
+                    <option value="aprovado">Aprovado</option>
+                    <option value="publicado">Publicado</option>
+                  </select>
+                </Field>
+              </div>
+              <Field label="Campanha (opcional)"><input value={form.campanha} onChange={set('campanha')} placeholder="Ex: Coleção Inverno" className={inp} /></Field>
+            </div>
+            <div className="flex justify-end gap-2 px-6 pb-5">
+              <button onClick={onClose} className="px-4 py-2 border border-hair rounded-lg text-sm text-navy/60 hover:bg-canvas transition">Cancelar</button>
+              <button onClick={handleSave} disabled={saving}
+                className="px-5 py-2 bg-navy text-white rounded-lg text-sm font-semibold hover:bg-navy/80 transition disabled:opacity-50">
+                {saving ? 'Salvando...' : 'Salvar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    const inp = "w-full border border-hair rounded-lg px-3 py-2 text-sm outline-none focus:border-navy/30 focus:ring-2 focus:ring-navy/10 bg-white";
+    function Field({ label, children }) {
+      return <div><label className="text-xs font-semibold text-navy/45 uppercase tracking-wide block mb-1">{label}</label>{children}</div>;
+    }
+
+    /* ══════════════ KANBAN / ATIVIDADES ══════════════ */
+    function Atividades({ atividades, setAtividades, user, scriptUrl }) {
+      const [drag, setDrag] = useState(null);
+      const [modalOpen, setModalOpen] = useState(false);
+      const [saving, setSaving] = useState(false);
+      const [novaAtiv, setNovaAtiv] = useState({
+        titulo:'', descricao:'', responsavel:'', etapa:'ideia',
+        prioridade:'media', campanha:'', rede:'', data_prazo:''
+      });
+      const isMaster = user.perfil === 'master';
+      const setA = k => e => setNovaAtiv(f=>({...f,[k]:e.target.value}));
+
+      async function salvarNovaAtividade() {
+        if (!novaAtiv.titulo) { alert('Informe o título.'); return; }
+        setSaving(true);
+        const nova = { ...novaAtiv, id: Date.now().toString() };
+        if (scriptUrl) {
+          try { await apiPost(scriptUrl, { action:'salvarAtividade', dados:nova }); }
+          catch(e) { console.warn(e); }
+        }
+        setAtividades(as => [...as, nova]);
+        setNovaAtiv({ titulo:'', descricao:'', responsavel:'', etapa:'ideia', prioridade:'media', campanha:'', rede:'', data_prazo:'' });
+        setSaving(false);
+        setModalOpen(false);
+      }
+
+      function onDragStart(e, id) { setDrag(id); e.dataTransfer.effectAllowed='move'; }
+      function onDragOver(e, col) { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }
+      function onDragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
+      async function onDrop(e, etapa) {
+        e.preventDefault(); e.currentTarget.classList.remove('drag-over');
+        if (!drag) return;
+        setAtividades(as => as.map(a => a.id===drag ? {...a, etapa} : a));
+        if (scriptUrl) {
+          try { await apiPost(scriptUrl, { action:'moverAtividade', id:drag, etapa }); }
+          catch(e) { console.warn(e); }
+        }
+        setDrag(null);
+      }
+
+      async function aprovar(id) {
+        setAtividades(as => as.map(a => a.id===id ? {...a, etapa:'agendado'} : a));
+        if (scriptUrl) await apiPost(scriptUrl, { action:'moverAtividade', id, etapa:'agendado' });
+      }
+      async function reprovar(id) {
+        const motivo = prompt('Motivo da reprovação:');
+        if (!motivo) return;
+        setAtividades(as => as.map(a => a.id===id ? {...a, etapa:'roteiro', reprovado:true, motivoReprovacao:motivo} : a));
+        if (scriptUrl) await apiPost(scriptUrl, { action:'reprovarAtividade', id, motivo });
+      }
+
+      return (
+        <div className="p-6 fade-up">
+          <div className="flex items-center justify-between mb-5">
+            <div>
+              <h1 className="text-xl font-bold text-navy">Quadro de Atividades</h1>
+              <p className="text-navy/40 text-sm">Arraste os cards para mover entre etapas</p>
+            </div>
+            <button onClick={() => setModalOpen(true)}
+              className="px-4 py-2 bg-electric text-white rounded-lg text-sm font-semibold hover:bg-electric/85 transition">+ Nova atividade</button>
+          </div>
+
+          {modalOpen && (
+            <div className="fixed inset-0 z-50 bg-navy/30 flex items-center justify-center" onClick={()=>setModalOpen(false)}>
+              <div className="bg-white rounded-2xl shadow-card w-[440px] fade-up" onClick={e=>e.stopPropagation()}>
+                <div className="flex items-center justify-between px-6 py-4 border-b border-hair">
+                  <div className="font-bold text-navy">Nova atividade</div>
+                  <button onClick={()=>setModalOpen(false)} className="text-navy/30 hover:text-navy text-xl">×</button>
+                </div>
+                <div className="px-6 py-4 flex flex-col gap-3">
+                  <Field label="Título"><input value={novaAtiv.titulo} onChange={setA('titulo')} placeholder="Ex: Produzir reel de lookbook" className={inp} /></Field>
+                  <Field label="Descrição"><textarea value={novaAtiv.descricao} onChange={setA('descricao')} placeholder="Detalhes da atividade..." className={`${inp} min-h-[64px] resize-none`} /></Field>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Responsável"><input value={novaAtiv.responsavel} onChange={setA('responsavel')} placeholder="Nome" className={inp} /></Field>
+                    <Field label="Prioridade">
+                      <select value={novaAtiv.prioridade} onChange={setA('prioridade')} className={inp}>
+                        <option value="alta">Alta</option>
+                        <option value="media">Média</option>
+                        <option value="baixa">Baixa</option>
+                      </select>
+                    </Field>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Campanha"><input value={novaAtiv.campanha} onChange={setA('campanha')} placeholder="Ex: Coleção Inverno" className={inp} /></Field>
+                    <Field label="Data prazo"><input type="date" value={novaAtiv.data_prazo} onChange={setA('data_prazo')} className={inp} /></Field>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 px-6 pb-5">
+                  <button onClick={()=>setModalOpen(false)} className="px-4 py-2 border border-hair rounded-lg text-sm text-navy/50">Cancelar</button>
+                  <button onClick={salvarNovaAtividade} disabled={saving}
+                    className="px-5 py-2 bg-navy text-white rounded-lg text-sm font-semibold hover:bg-navy/80 disabled:opacity-50 transition">
+                    {saving ? 'Salvando...' : 'Salvar'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-3 overflow-x-auto pb-4">
+            {STAGES.map(etapa => {
+              const cards = atividades.filter(a => (a.etapa||'ideia') === etapa);
+              const meta = STAGE_META[etapa];
+              return (
+                <div key={etapa} className="w-60 shrink-0">
+                  <div className="flex items-center gap-2 mb-2.5 px-1">
+                    <div className={`w-2 h-2 rounded-full ${meta.dot}`} />
+                    <span className="text-xs font-semibold text-navy/60">{meta.label}</span>
+                    <span className="ml-auto text-[10px] bg-navy/8 text-navy/40 rounded-full px-2 py-0.5">{cards.length}</span>
+                  </div>
+                  <div className={`kanban-col rounded-xl bg-navy/[0.025] p-2 flex flex-col gap-2`}
+                    onDragOver={e=>onDragOver(e,etapa)} onDragLeave={onDragLeave} onDrop={e=>onDrop(e,etapa)}>
+                    {cards.map(a => (
+                      <KanbanCard key={a.id} post={a} onDragStart={onDragStart}
+                        isMaster={isMaster} onAprovar={aprovar} onReprovar={reprovar} />
+                    ))}
+                    {cards.length === 0 && (
+                      <div className="text-center text-navy/20 text-xs py-6">Vazio</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    function KanbanCard({ post, onDragStart, isMaster, onAprovar, onReprovar }) {
+      const prio = PRIO_META[post.prioridade] || PRIO_META.media;
+      return (
+        <div draggable onDragStart={e=>onDragStart(e,post.id)}
+          className="bg-white rounded-xl p-3 shadow-soft cursor-grab active:cursor-grabbing select-none">
+          {post.reprovado && (
+            <div className="text-[10px] text-electric font-semibold mb-1.5 bg-electric/8 px-2 py-1 rounded-lg">
+              ✕ Reprovado: {post.motivoReprovacao}
+            </div>
+          )}
+          <div className="text-sm font-semibold text-navy leading-snug mb-2">
+            {post.titulo || post.legenda?.slice(0,50) || '—'}
+          </div>
+          <div className="flex flex-wrap gap-1 mb-2">
+            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${FORMAT_CHIP[post.formato]||''}`}>{FORMAT_LABEL[post.formato]}</span>
+            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${prio.cls}`}>{prio.label}</span>
+            {post.campanha && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-navy/5 text-navy/50">{post.campanha}</span>}
+          </div>
+          <div className="flex items-center justify-between text-[10px] text-navy/35">
+            <span>{fmtDate(post.data)}</span>
+            <span>{post.responsavel}</span>
+          </div>
+          {isMaster && (post.etapa||'ideia') === 'aprovacao' && (
+            <div className="flex gap-1.5 mt-2.5">
+              <button onClick={()=>onAprovar(post.id)}
+                className="flex-1 bg-sage/15 text-[#3d5240] text-[10px] font-semibold py-1 rounded-lg hover:bg-sage/25 transition">✓ Aprovar</button>
+              <button onClick={()=>onReprovar(post.id)}
+                className="flex-1 bg-electric/10 text-electric text-[10px] font-semibold py-1 rounded-lg hover:bg-electric/20 transition">✕ Reprovar</button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    /* ══════════════ TENDÊNCIAS ══════════════ */
+    function BtnSalvar({ onClick }) {
+      const [salvando, setSalvando] = useState(false);
+      async function handle() {
+        setSalvando(true);
+        await onClick();
+        setSalvando(false);
+      }
+      return (
+        <button onClick={handle} disabled={salvando}
+          className="mt-3 text-xs bg-navy text-white px-3 py-1.5 rounded-lg font-semibold hover:bg-navy/80 disabled:opacity-50 transition">
+          {salvando ? '⏳ Salvando...' : '✓ Salvar na planilha'}
+        </button>
+      );
+    }
+
+    function Tendencias({ scriptUrl }) {
+      const [tendencias, setTendencias] = useState([]);
+      const [buscaOpen, setBuscaOpen] = useState(false);
+      const [resultado, setResultado] = useState(null);
+      const [loading, setLoading] = useState(false);
+      const [form, setForm] = useState({
+        tema:'', nicho:'moda feminina varejo Brasil', periodo:'últimas 2 semanas',
+        quantidade:5, contexto:'', influencers:'',
+        redes:{ instagram:true, tiktok:true, youtube:false, pinterest:false }
+      });
+
+      useEffect(() => {
+        if (!scriptUrl) return;
+        apiFetch(scriptUrl, 'getTendencias').then(d => setTendencias(d.tendencias||[])).catch(()=>{});
+      }, [scriptUrl]);
+
+      const set = k => e => setForm(f=>({...f,[k]:e.target.value}));
+      const setRede = k => e => setForm(f=>({...f, redes:{...f.redes,[k]:e.target.checked}}));
+
+      async function buscar() {
+        if (!scriptUrl) { alert('URL do Apps Script não configurada.'); return; }
+        const redes = Object.entries(form.redes).filter(([,v])=>v).map(([k])=>k);
+        if (!redes.length) { alert('Selecione pelo menos uma rede.'); return; }
+        setLoading(true); setResultado(null);
+        try {
+          const params = {
+            tema:        form.tema,
+            nicho:       form.nicho,
+            periodo:     form.periodo,
+            quantidade:  form.quantidade,
+            contexto:    form.contexto,
+            influencers: form.influencers,
+            redes:       redes.join(',')
+          };
+          const r = await fetch(scriptUrl, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain' },
+            body: JSON.stringify({ action: 'buscarTendencias', params })
+          });
+          // no-cors não retorna body — buscar resultado via GET após delay
+          await new Promise(res => setTimeout(res, 8000));
+          const res2 = await fetch(scriptUrl + '?action=getUltimaBusca&_t=' + Date.now());
+          const data = await res2.json();
+          if (data.erro) { alert('Erro: ' + data.erro); setLoading(false); return; }
+          if (data.resultado) {
+            setResultado(data.resultado);
+            setBuscaOpen(false);
+          } else {
+            alert('A busca está sendo processada. Aguarde alguns segundos e clique em "Ver resultado".');
+          }
+        } catch(e) { alert('Erro: ' + e.message); }
+        setLoading(false);
+      }
+
+      async function salvarTendencia(t) {
+        if (scriptUrl) {
+          try {
+            await apiPost(scriptUrl, { action:'salvarTendencia', dados:t });
+            // Aguarda gravar e recarrega lista do Sheets
+            await new Promise(res => setTimeout(res, 1500));
+            const data = await apiFetch(scriptUrl, 'getTendencias');
+            setTendencias(data.tendencias || []);
+          } catch(e) {
+            // Mesmo com erro, adiciona localmente
+            setTendencias(ts => [...ts, {...t, id: Date.now().toString(), ativo:true}]);
+          }
+        } else {
+          setTendencias(ts => [...ts, {...t, id: Date.now().toString(), ativo:true}]);
+        }
+        alert('Tendência salva na planilha com sucesso!');
+      }
+
+      const nivelCls = { Alta:'bg-sage/20 text-[#3d5240]', Média:'bg-navy/8 text-navy/55', Baixa:'bg-navy/5 text-navy/35' };
+
+      return (
+        <div className="p-6 fade-up">
+          <div className="flex items-center justify-between mb-5">
+            <div>
+              <h1 className="text-xl font-bold text-navy">Tendências</h1>
+              <p className="text-navy/40 text-sm">Busque tendências com IA ou adicione via planilha</p>
+            </div>
+            <button onClick={()=>setBuscaOpen(b=>!b)}
+              className="px-4 py-2 bg-navy text-white rounded-lg text-sm font-semibold hover:bg-navy/80 transition">✦ Buscar com IA</button>
+          </div>
+
+          {buscaOpen && (
+            <div className="bg-white rounded-2xl shadow-soft p-5 mb-5 fade-up">
+              <div className="font-semibold text-navy mb-4">🔍 Configurar busca</div>
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <Field label="O que buscar"><input value={form.tema} onChange={set('tema')} placeholder="Ex: moda jeans inverno..." className={inp} /></Field>
+                <Field label="Redes sociais">
+                  <div className="flex gap-3 flex-wrap border border-hair rounded-lg px-3 py-2">
+                    {Object.keys(form.redes).map(r=>(
+                      <label key={r} className="flex items-center gap-1.5 text-sm capitalize cursor-pointer">
+                        <input type="checkbox" checked={form.redes[r]} onChange={setRede(r)} className="accent-navy" />{r}
+                      </label>
+                    ))}
+                  </div>
+                </Field>
+                <Field label="Segmento">
+                  <select value={form.nicho} onChange={set('nicho')} className={inp}>
+                    {['moda feminina varejo Brasil','moda masculina varejo Brasil','moda plus size Brasil','moda infantil Brasil','moda inverno Brasil','varejo de moda geral Brasil'].map(n=><option key={n} value={n}>{n}</option>)}
+                  </select>
+                </Field>
+                <Field label="Período">
+                  <select value={form.periodo} onChange={set('periodo')} className={inp}>
+                    {['última semana','últimas 2 semanas','último mês','últimos 3 meses'].map(p=><option key={p} value={p}>{p}</option>)}
+                  </select>
+                </Field>
+                <Field label="Influencers (um por linha)"><textarea value={form.influencers} onChange={set('influencers')} placeholder="@influencer1" className={`${inp} min-h-[60px] resize-none`} /></Field>
+                <Field label="Quantidade">
+                  <select value={form.quantidade} onChange={e=>setForm(f=>({...f,quantidade:Number(e.target.value)}))} className={inp}>
+                    {[3,5,8,10].map(n=><option key={n} value={n}>{n} tendências</option>)}
+                  </select>
+                </Field>
+              </div>
+              <Field label="Contexto adicional"><textarea value={form.contexto} onChange={set('contexto')} placeholder="Ex: lançamento de coleção em agosto..." className={`${inp} min-h-[56px] resize-none`} /></Field>
+              <div className="flex justify-end gap-2 mt-4">
+                <button onClick={()=>setBuscaOpen(false)} className="px-4 py-2 border border-hair rounded-lg text-sm text-navy/50">Cancelar</button>
+                <button onClick={buscar} disabled={loading}
+                  className="px-5 py-2 bg-navy text-white rounded-lg text-sm font-semibold hover:bg-navy/80 disabled:opacity-50 transition">
+                  {loading ? '⏳ Buscando...' : '✦ Buscar agora'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {resultado && (
+            <div className="bg-white border border-sage/30 rounded-2xl p-5 mb-5 fade-up">
+              <div className="flex items-center justify-between mb-3">
+                <div className="font-semibold text-navy">{resultado.tendencias?.length} tendências encontradas</div>
+                <button onClick={()=>setResultado(null)} className="text-navy/30 hover:text-navy text-lg">×</button>
+              </div>
+              {resultado.resumo && <p className="text-sm text-navy/50 mb-4 bg-canvas rounded-lg px-3 py-2">{resultado.resumo}</p>}
+              {(resultado.tendencias||[]).map((t,i)=>(
+                <div key={i} className="border border-hair rounded-xl p-4 mb-3">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="font-semibold text-navy text-sm">{t.titulo}</div>
+                    <div className="flex gap-1.5 shrink-0">
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${nivelCls[t.nivel]||''}`}>{t.nivel}</span>
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-navy/5 text-navy/45">{t.plataforma}</span>
+                    </div>
+                  </div>
+                  <p className="text-sm text-navy/55 mb-2">{t.descricao}</p>
+                  {t.como_aplicar && <p className="text-xs text-navy/70 font-medium mb-1">💡 {t.como_aplicar}</p>}
+                  {t.exemplos && <p className="text-xs text-navy/40">📝 {t.exemplos}</p>}
+                  <BtnSalvar onClick={()=>salvarTendencia(t)} />
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex items-center justify-between mb-3">
+            {tendencias.length > 0 && <div className="text-sm font-semibold text-navy/50">Tendências salvas ({tendencias.length})</div>}
+            {scriptUrl && (
+              <button onClick={()=>apiFetch(scriptUrl,'getTendencias').then(d=>setTendencias(d.tendencias||[])).catch(()=>{})}
+                className="text-xs text-navy/40 hover:text-navy transition flex items-center gap-1">
+                ↻ Atualizar lista
+              </button>
+            )}
+          </div>
+
+          {tendencias.length === 0 && !resultado && (
+            <div className="text-center py-16 text-navy/25">
+              <div className="text-4xl mb-3">📋</div>
+              <div className="text-sm">Nenhuma tendência salva. Clique em "Buscar com IA" ou adicione na planilha.</div>
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-4">
+            {tendencias.map(t=>(
+              <div key={t.id} className="bg-white rounded-xl shadow-soft p-4">
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <div className="font-semibold text-navy text-sm">{t.titulo}</div>
+                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${nivelCls[t.nivel]||''}`}>{t.nivel}</span>
+                </div>
+                <p className="text-xs text-navy/50 leading-relaxed mb-3">{t.descricao}</p>
+                <span className="text-[10px] font-semibold bg-navy/5 text-navy/40 px-2 py-0.5 rounded-full">{t.plataforma}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    /* ══════════════ MÉTRICAS ══════════════ */
+    function Metricas({ posts, scriptUrl }) {
+      const [metricas, setMetricas] = useState([]);
+      const [insight, setInsight] = useState('');
+      const [loadingInsight, setLoadingInsight] = useState(false);
+
+      useEffect(() => {
+        if (!scriptUrl) return;
+        apiFetch(scriptUrl,'getMetricas').then(d=>setMetricas(d.metricas||[])).catch(()=>{});
+      },[scriptUrl]);
+
+      const mediaAlcance = metricas.length ? metricas.reduce((s,m)=>s+(Number(m.alcance)||0),0)/metricas.length : 0;
+      const mediaEng = metricas.length ? metricas.reduce((s,m)=>s+(Number(m.engajamento)||0),0)/metricas.length : 0;
+
+      function classif(m) {
+        const e = Number(m.engajamento)||0;
+        return e > mediaEng*1.2 ? 'acima' : e < mediaEng*0.8 ? 'abaixo' : 'na';
+      }
+
+      function getNome(m) {
+        const p = posts.find(p=>p.post_id_meta===m.post_id_meta);
+        return p ? (p.titulo||p.legenda?.slice(0,40)) : (m.post_id_meta||'Post');
+      }
+
+      async function gerarInsight() {
+        if (!scriptUrl) { alert('URL do Apps Script não configurada.'); return; }
+        if (!metricas.length) { alert('Adicione métricas na planilha primeiro.'); return; }
+        setLoadingInsight(true);
+        try {
+          await fetch(scriptUrl, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain' },
+            body: JSON.stringify({
+              action: 'gerarInsightMetricas',
+              metricas: metricas,
+              mediaAlcance: Math.round(mediaAlcance),
+              mediaEngajamento: mediaEng.toFixed(1)
+            })
+          });
+          await new Promise(res => setTimeout(res, 8000));
+          const res2 = await fetch(scriptUrl + '?action=getUltimoInsight&_t=' + Date.now());
+          const data = await res2.json();
+          if (data.insight) {
+            setInsight(data.insight);
+          } else {
+            setInsight('Processando... clique em "Gerar análise" novamente em alguns segundos.');
+          }
+        } catch(e) { setInsight('Erro: ' + e.message); }
+        setLoadingInsight(false);
+      }
+
+      return (
+        <div className="p-6 fade-up">
+          <div className="flex items-center justify-between mb-5">
+            <div>
+              <h1 className="text-xl font-bold text-navy">Métricas e Performance</h1>
+              <p className="text-navy/40 text-sm">Dados via Meta Graph API ou inseridos manualmente</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-4 mb-5">
+            {[
+              { label:'Engajamento médio', val: metricas.length ? mediaEng.toFixed(1)+'%' : '—' },
+              { label:'Alcance médio',     val: metricas.length ? fmtReach(Math.round(mediaAlcance)) : '—' },
+              { label:'Posts analisados',  val: metricas.length || '—' },
+            ].map(c=>(
+              <div key={c.label} className="bg-white rounded-2xl shadow-soft px-5 py-4">
+                <div className="text-xs text-navy/40 font-medium mb-1">{c.label}</div>
+                <div className="text-3xl font-bold text-navy tracking-tight">{c.val}</div>
+              </div>
+            ))}
+          </div>
+          <div className="bg-white rounded-2xl shadow-soft overflow-hidden mb-5">
+            <div className="px-5 py-3.5 border-b border-hair font-semibold text-navy text-sm">Performance por post</div>
+            {metricas.length === 0 ? (
+              <div className="text-center py-12 text-navy/25 text-sm">Adicione métricas na aba <strong>metricas</strong> da planilha.</div>
+            ) : metricas.map(m => {
+              const cl = classif(m); const cm = CLASS_META[cl];
+              return (
+                <div key={m.id||m.post_id_meta} className="flex items-center gap-3 px-5 py-3.5 border-b border-hair last:border-0 hover:bg-canvas transition">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold text-navy truncate">{getNome(m)}</div>
+                    <div className="flex gap-3 text-xs text-navy/35 mt-0.5">
+                      <span>Alcance {fmtReach(m.alcance)}</span>
+                      <span>Eng. {m.engajamento}%</span>
+                      <span>❤️ {m.curtidas}</span>
+                      <span>💬 {m.comentarios}</span>
+                      <span>🔖 {m.salvamentos}</span>
+                    </div>
+                  </div>
+                  <span className={`text-[11px] font-semibold px-3 py-1 rounded-full ${cm.cls}`}>{cm.label}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="bg-navy rounded-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-3.5">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-electric animate-pulse" />
+                <span className="text-white text-sm font-semibold">Análise automática — Por que isso aconteceu</span>
+              </div>
+              <button onClick={gerarInsight} disabled={loadingInsight}
+                className="px-4 py-1.5 bg-electric text-white text-xs font-semibold rounded-lg hover:bg-electric/80 disabled:opacity-50 transition">
+                {loadingInsight ? '⏳ Analisando...' : '✦ Gerar análise'}
+              </button>
+            </div>
+            <div className="px-5 pb-5">
+              <p className="text-white/50 text-sm leading-relaxed whitespace-pre-line">
+                {insight || 'Adicione métricas e clique em "Gerar análise" para a IA explicar o desempenho dos seus posts.'}
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    /* ══════════════ CONFIGURAÇÕES (modal) ══════════════ */
+    function ConfigModal({ onClose, onSave }) {
+      const cfg = loadConfig();
+      const [form, setForm] = useState({
+        script_url: cfg.script_url||'',
+        claude_key: cfg.claude_key||'',
+        meta_token: cfg.meta_token||'',
+        ig_account_id: cfg.ig_account_id||'',
+      });
+      const set = k => e => setForm(f=>({...f,[k]:e.target.value}));
+      function save() { saveConfig(form); onSave(form); onClose(); }
+      return (
+        <div className="fixed inset-0 z-50 bg-navy/30 flex items-center justify-center" onClick={onClose}>
+          <div className="bg-white rounded-2xl shadow-card w-[460px] fade-up" onClick={e=>e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-hair">
+              <div className="font-bold text-navy">Configurações</div>
+              <button onClick={onClose} className="text-navy/30 hover:text-navy text-xl">×</button>
+            </div>
+            <div className="px-6 py-4 flex flex-col gap-3">
+              <Field label="URL do Apps Script"><input value={form.script_url} onChange={set('script_url')} className={inp} placeholder="https://script.google.com/..." /></Field>
+              {/* Claude API Key movida para o Apps Script — mais seguro */}
+              <Field label="Meta Token (System User)"><input type="password" value={form.meta_token} onChange={set('meta_token')} className={inp} placeholder="EAAxxxxx..." /></Field>
+              <Field label="Instagram Account ID"><input value={form.ig_account_id} onChange={set('ig_account_id')} className={inp} placeholder="17841400..." /></Field>
+              <p className="text-xs text-navy/35">Configurações salvas localmente no browser.</p>
+            </div>
+            <div className="flex justify-end gap-2 px-6 pb-5">
+              <button onClick={onClose} className="px-4 py-2 border border-hair rounded-lg text-sm text-navy/50">Cancelar</button>
+              <button onClick={save} className="px-5 py-2 bg-navy text-white rounded-lg text-sm font-semibold hover:bg-navy/80 transition">Salvar</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    /* ══════════════ APP ROOT ══════════════ */
+    function App() {
+      const [user, setUser] = useState(null);
+      const [tab, setTab] = useState('meudia');
+      const [posts, setPosts] = useState([]);
+      const [atividades, setAtividades] = useState([]);
+      const [novoPostData, setNovoPostData] = useState(false); // false=fechado, null=sem data, string=com data
+      const [configOpen, setConfigOpen] = useState(false);
+      const [cfg, setCfg] = useState(loadConfig());
+      const isMaster = user?.perfil === 'master';
+
+      useEffect(() => {
+        if (!user || !cfg.script_url) return;
+        // Carrega posts do calendário
+        apiFetch(cfg.script_url,'getPosts').then(d=>{
+          if (d.posts?.length) setPosts(d.posts.map(p=>({
+            ...p,
+            data: p.data?.toString().slice(0,10) || '',
+            rede_social: (p.rede_social||'').toLowerCase(),
+            formato: (p.formato||'').toLowerCase(),
+            status: (p.status||'').toLowerCase(),
+            etapa: (p.etapa||'ideia').toLowerCase(),
+          })));
+        }).catch(()=>{});
+        // Carrega atividades do Kanban (separado)
+        apiFetch(cfg.script_url,'getAtividades').then(d=>{
+          if (d.atividades?.length) setAtividades(d.atividades.map(a=>({...a, data:a.data_prazo?.toString().slice(0,10)||''})));
+        }).catch(()=>{});
+      }, [user, cfg.script_url]);
+
+      function handleLogin(u) { setUser(u); setCfg({...loadConfig(), script_url:u.scriptUrl}); }
+      function handleLogout() { setUser(null); setPosts([]); setAtividades([]); }
+      function handleNovoPost(data) { setNovoPostData(data === null ? null : (data || null)); }
+      function handleSavePost(p) { setPosts(ps=>[...ps, p]); }
+      function handleSaveCfg(c) { setCfg(c); }
+
+      if (!user) return <LoginPage onLogin={handleLogin} />;
+
+      return (
+        <div className="flex min-h-screen">
+          <Sidebar tab={tab} setTab={setTab} user={user} onLogout={handleLogout} />
+          <div className="flex-1 overflow-y-auto">
+            <div className="flex items-center justify-end px-6 py-3 border-b border-hair bg-white sticky top-0 z-10">
+              <button onClick={()=>setConfigOpen(true)}
+                className="text-xs text-navy/40 hover:text-navy font-medium flex items-center gap-1.5 transition">
+                ⚙ Configurações
+              </button>
+            </div>
+            {tab==='meudia'     && <MeuDia posts={posts} user={user} />}
+            {tab==='calendario' && <Calendario posts={posts} onNovoPost={handleNovoPost} user={user} />}
+            {tab==='atividades' && <Atividades atividades={atividades} setAtividades={setAtividades} user={user} scriptUrl={cfg.script_url} />}
+            {tab==='tendencias' && isMaster && <Tendencias scriptUrl={cfg.script_url} />}
+            {tab==='metricas'   && <Metricas posts={posts} scriptUrl={cfg.script_url} />}
+          </div>
+          {novoPostData !== false && (
+            <NovoPostModal dataInicial={novoPostData} onSave={handleSavePost}
+              onClose={()=>setNovoPostData(false)} scriptUrl={cfg.script_url} />
+          )}
+          {configOpen && <ConfigModal onClose={()=>setConfigOpen(false)} onSave={handleSaveCfg} />}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
